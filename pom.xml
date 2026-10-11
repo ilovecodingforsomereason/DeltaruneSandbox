@@ -1,9 +1,10 @@
-<project>
+<project xmlns="http://apache.org" 
+         xmlns:xsi="http://w3.org"
+         xsi:schemaLocation="http://apache.org http://apache.org">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.deltarune</groupId>
     <artifactId>sandbox</artifactId>
-    <!-- Force this to match your target file version exactly -->
     <version>1.0-Alpha0.1</version>
 
     <properties>
@@ -17,29 +18,22 @@
         <dependency>
             <groupId>com.badlogicgames.gdx</groupId>
             <artifactId>gdx</artifactId>
-            <version>1.12.1</version>
+            <version>${gdx.version}</version>
         </dependency>
         <dependency>
             <groupId>com.badlogicgames.gdx</groupId>
             <artifactId>gdx-backend-lwjgl3</artifactId>
-            <version>1.12.1</version>
+            <version>${gdx.version}</version>
         </dependency>
         <dependency>
             <groupId>com.badlogicgames.gdx</groupId>
             <artifactId>gdx-platform</artifactId>
-            <version>1.12.1</version>
+            <version>${gdx.version}</version>
             <classifier>natives-desktop</classifier>
         </dependency>
     </dependencies>
 
     <build>
-        <resources>
-            <resource>
-                <directory>assets</directory>
-                <targetPath>assets</targetPath>
-            </resource>
-        </resources>
-
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -51,7 +45,6 @@
                 </configuration>
             </plugin>
 
-            <!-- The Shade Plugin forces Maven to inject launch descriptors straight into the manifest -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -65,7 +58,6 @@
                         <configuration>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <!-- Explicitly links your compiled script entry execution layout -->
                                     <mainClass>Main</mainClass>
                                 </transformer>
                             </transformers>

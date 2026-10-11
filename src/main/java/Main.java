@@ -12,7 +12,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
-
+import java.io.InputStream;
 import java.util.HashMap;
 
 public class Main extends ApplicationAdapter {
@@ -20,10 +20,7 @@ public class Main extends ApplicationAdapter {
     private OrthographicCamera camera;
     private Texture mapTex;
     private Pixmap mapPixmap;
-
-    // A collection to keep track of loaded textures so we can dispose them properly
     private final Array<Texture> loadedTextures = new Array<>();
-    // Caches animations using a combined key like "kris_down"
     private HashMap<String, Animation<TextureRegion>> animations;
     
     private String currentHero = "kris";
@@ -38,58 +35,48 @@ public class Main extends ApplicationAdapter {
     @Override
     public void create() {
         batch = new SpriteBatch();
-        
         mapTex = new Texture(Gdx.files.internal("assets/school.png"));
-        mapPixmap = new Pixmap(Gdx.files.internal("assets/school.png"));
+        
+        byte[] bytes = Gdx.files.internal("assets/school.png").readBytes();
+        mapPixmap = new Pixmap(bytes, 0, bytes.length);
         
         camera = new OrthographicCamera();
         camera.setToOrtho(false, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
-        
         animations = new HashMap<>();
-        
-        // Safely pre-load all direction animations for your heroes at startup
         loadHeroAnimations("kris");
         loadHeroAnimations("noelle");
     }
 
     private void loadHeroAnimations(String heroName) {
         String[] directions = {"down", "left", "right", "up"};
-        
         for (String d : directions) {
+            InputStream stream = null;
+            javax.imageio.stream.ImageInputStream s = null;
             try {
-                // Read the frames using your original ImageIO GIF reader setup
-                // But we execute it ONCE here in create(), never in render()
+                stream = Gdx.files.internal("assets/" + heroName + "_lw_walkcycle_" + d + ".gif").read();
                 javax.imageio.ImageReader r = javax.imageio.ImageIO.getImageReadersByFormatName("gif").next();
-                javax.imageio.stream.ImageInputStream s = javax.imageio.ImageIO.createImageInputStream(
-                    Gdx.files.internal("assets/" + heroName + "_lw_walkcycle_" + d + ".gif").file()
-                );
+                s = javax.imageio.ImageIO.createImageInputStream(stream);
                 r.setInput(s);
-                
                 Array<TextureRegion> frames = new Array<>();
                 int numImages = r.getNumImages(true);
-                
                 for (int i = 0; i < numImages; i++) {
                     java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream();
                     javax.imageio.ImageIO.write(r.read(i), "png", os);
                     byte[] b = os.toByteArray();
-                    
                     Pixmap p = new Pixmap(b, 0, b.length);
                     Texture tex = new Texture(p);
-                    
-                    // Track this texture so we don't leak GPU memory
                     loadedTextures.add(tex);
                     frames.add(new TextureRegion(tex));
                     p.dispose();
                 }
-                
-                // Save the animation loop into our memory map
                 Animation<TextureRegion> anim = new Animation<>(0.15f, frames, Animation.PlayMode.LOOP);
                 animations.put(heroName + "_" + d, anim);
-                
-                r.dispose(); 
-                s.close();
+                r.dispose();
             } catch (Exception e) {
                 Gdx.app.error("ANIM_LOAD", "Could not load animation for: " + heroName + "_" + d);
+            } finally {
+                try { if (s != null) s.close(); } catch (Exception ignored) {}
+                try { if (stream != null) stream.close(); } catch (Exception ignored) {}
             }
         }
     }
@@ -108,11 +95,9 @@ public class Main extends ApplicationAdapter {
         
         Animation<TextureRegion> currentAnim = animations.get(currentHero + "_" + dir);
         if (currentAnim != null) {
-            // If moving, loop frames. If standing still, freeze cleanly on frame 0
             TextureRegion currentFrame = moving ? currentAnim.getKeyFrame(stateTime, true) : currentAnim.getKeyFrame(0);
             batch.draw(currentFrame, x, y);
         }
-        
         batch.end();
     }
 
@@ -176,7 +161,6 @@ public class Main extends ApplicationAdapter {
         batch.dispose();
         mapTex.dispose();
         mapPixmap.dispose();
-        // Clear all cached sprite frames from your GPU memory safely
         for (Texture tex : loadedTextures) {
             tex.dispose();
         }
