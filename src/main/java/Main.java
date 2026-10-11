@@ -10,8 +10,10 @@ import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.Animation;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.g2d.TextureRegion;
+import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.utils.Array;
-import javax.imageio.ImageIO;
+
+import java.util.HashMap;
 
 public class Main extends ApplicationAdapter {
     private SpriteBatch batch;
@@ -19,87 +21,172 @@ public class Main extends ApplicationAdapter {
     private Texture mapTex;
     private Pixmap mapPixmap;
 
-    private String hero = "kris", dir = "down"; 
-    private float x = 415, y = 430, time = 0f;
+    // A collection to keep track of loaded textures so we can dispose them properly
+    private final Array<Texture> loadedTextures = new Array<>();
+    // Caches animations using a combined key like "kris_down"
+    private HashMap<String, Animation<TextureRegion>> animations;
+    
+    private String currentHero = "kris";
+    private String dir = "down"; 
+    private float x = 415, y = 430, stateTime = 0f;
     private boolean moving = false;
-    private Animation<TextureRegion> anim;
+
+    private static final int VIRTUAL_WIDTH = 320;
+    private static final int VIRTUAL_HEIGHT = 240;
+    private static final float SPEED = 140f; 
 
     @Override
     public void create() {
         batch = new SpriteBatch();
+        
         mapTex = new Texture(Gdx.files.internal("assets/school.png"));
         mapPixmap = new Pixmap(Gdx.files.internal("assets/school.png"));
+        
         camera = new OrthographicCamera();
-        camera.setToOrtho(false, 800, 600); 
-        camera.zoom = 0.25f; 
-        loadAnim();
+        camera.setToOrtho(false, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+        
+        animations = new HashMap<>();
+        
+        // Safely pre-load all direction animations for your heroes at startup
+        loadHeroAnimations("kris");
+        loadHeroAnimations("noelle");
     }
 
-    private void loadAnim() {
-        try {
-            javax.imageio.ImageReader r = ImageIO.getImageReadersByFormatName("gif").next();
-            javax.imageio.stream.ImageInputStream s = ImageIO.createImageInputStream(Gdx.files.internal("assets/" + hero + "_lw_walkcycle_" + dir + ".gif").file());
-            r.setInput(s);
-            Array<TextureRegion> frames = new Array<>();
-            for (int i = 0; i < r.getNumImages(true); i++) {
-                java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream();
-                ImageIO.write(r.read(i), "png", os);
-                byte[] b = os.toByteArray();
-                Pixmap p = new Pixmap(b, 0, b.length);
-                frames.add(new TextureRegion(new Texture(p)));
-                p.dispose();
+    private void loadHeroAnimations(String heroName) {
+        String[] directions = {"down", "left", "right", "up"};
+        
+        for (String d : directions) {
+            try {
+                // Read the frames using your original ImageIO GIF reader setup
+                // But we execute it ONCE here in create(), never in render()
+                javax.imageio.ImageReader r = javax.imageio.ImageIO.getImageReadersByFormatName("gif").next();
+                javax.imageio.stream.ImageInputStream s = javax.imageio.ImageIO.createImageInputStream(
+                    Gdx.files.internal("assets/" + heroName + "_lw_walkcycle_" + d + ".gif").file()
+                );
+                r.setInput(s);
+                
+                Array<TextureRegion> frames = new Array<>();
+                int numImages = r.getNumImages(true);
+                
+                for (int i = 0; i < numImages; i++) {
+                    java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream();
+                    javax.imageio.ImageIO.write(r.read(i), "png", os);
+                    byte[] b = os.toByteArray();
+                    
+                    Pixmap p = new Pixmap(b, 0, b.length);
+                    Texture tex = new Texture(p);
+                    
+                    // Track this texture so we don't leak GPU memory
+                    loadedTextures.add(tex);
+                    frames.add(new TextureRegion(tex));
+                    p.dispose();
+                }
+                
+                // Save the animation loop into our memory map
+                Animation<TextureRegion> anim = new Animation<>(0.15f, frames, Animation.PlayMode.LOOP);
+                animations.put(heroName + "_" + d, anim);
+                
+                r.dispose(); 
+                s.close();
+            } catch (Exception e) {
+                Gdx.app.error("ANIM_LOAD", "Could not load animation for: " + heroName + "_" + d);
             }
-            anim = new Animation<>(0.15f, frames, Animation.PlayMode.LOOP);
-            r.dispose(); s.close();
-        } catch (Exception e) { anim = null; }
+        }
     }
 
     @Override
     public void render() {
-        boolean wasMoving = moving; String oldDir = dir; moving = false;
-        float nx = x, ny = y, d = 140f * Gdx.graphics.getDeltaTime();
-
-        if (Gdx.input.isKeyPressed(Input.Keys.LEFT) || Gdx.input.isKeyPressed(Input.Keys.A)) { nx -= d; dir = "left"; moving = true; }
-        else if (Gdx.input.isKeyPressed(Input.Keys.RIGHT) || Gdx.input.isKeyPressed(Input.Keys.D)) { nx += d; dir = "right"; moving = true; }
-        if (Gdx.input.isKeyPressed(Input.Keys.UP) || Gdx.input.isKeyPressed(Input.Keys.W)) { ny += d; dir = "up"; moving = true; }
-        else if (Gdx.input.isKeyPressed(Input.Keys.DOWN) || Gdx.input.isKeyPressed(Input.Keys.S)) { ny -= d; dir = "down"; moving = true; }
-
-        if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_1)) { hero = "kris"; loadAnim(); }
-        if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_2)) { hero = "noelle"; loadAnim(); }
-
-        if (moving) {
-            int px = (int) nx + 10, py = mapPixmap.getHeight() - 1 - (int) ny;
-            if (px >= 0 && px < mapPixmap.getWidth() && py >= 0 && py < mapPixmap.getHeight() && (mapPixmap.getPixel(px, py) & 0xffffff00) != 0) {
-                x = nx; y = ny; time += Gdx.graphics.getDeltaTime();
-            } else { moving = false; }
-        }
-
-        if (!dir.equals(oldDir) || moving != wasMoving) loadAnim();
+        handleInput();
+        updateCamera();
 
         Gdx.gl.glClearColor(0, 0, 0, 1);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
-        if (anim != null) {
-            TextureRegion f = anim.getKeyFrame(time);
-            camera.position.set(x + f.getRegionWidth()/2f, y + f.getRegionHeight()/2f, 0);
-        }
-        camera.position.x = Math.max(100, Math.min(camera.position.x, mapTex.getWidth() - 100));
-        camera.position.y = Math.max(75, Math.min(camera.position.y, mapTex.getHeight() - 75));
-        camera.update();
-
         batch.setProjectionMatrix(camera.combined);
         batch.begin();
         batch.draw(mapTex, 0, 0);
-        if (anim != null) batch.draw(anim.getKeyFrame(time), x, y);
+        
+        Animation<TextureRegion> currentAnim = animations.get(currentHero + "_" + dir);
+        if (currentAnim != null) {
+            // If moving, loop frames. If standing still, freeze cleanly on frame 0
+            TextureRegion currentFrame = moving ? currentAnim.getKeyFrame(stateTime, true) : currentAnim.getKeyFrame(0);
+            batch.draw(currentFrame, x, y);
+        }
+        
         batch.end();
     }
 
+    private void handleInput() {
+        Vector2 velocity = new Vector2(0, 0);
+
+        if (Gdx.input.isKeyPressed(Input.Keys.LEFT) || Gdx.input.isKeyPressed(Input.Keys.A))   velocity.x = -1;
+        if (Gdx.input.isKeyPressed(Input.Keys.RIGHT) || Gdx.input.isKeyPressed(Input.Keys.D))  velocity.x = 1;
+        if (Gdx.input.isKeyPressed(Input.Keys.UP) || Gdx.input.isKeyPressed(Input.Keys.W))     velocity.y = 1;
+        if (Gdx.input.isKeyPressed(Input.Keys.DOWN) || Gdx.input.isKeyPressed(Input.Keys.S))   velocity.y = -1;
+
+        if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_1)) currentHero = "kris";
+        if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_2)) currentHero = "noelle";
+
+        if (velocity.isZero()) {
+            moving = false;
+        } else {
+            moving = true;
+            if (velocity.x < 0) dir = "left";
+            else if (velocity.x > 0) dir = "right";
+            else if (velocity.y > 0) dir = "up";
+            else if (velocity.y < 0) dir = "down";
+
+            velocity.nor().scl(SPEED * Gdx.graphics.getDeltaTime());
+
+            float nextX = x + velocity.x;
+            float nextY = y + velocity.y;
+
+            int checkX = (int) nextX + 10; 
+            int checkY = mapPixmap.getHeight() - 1 - (int) nextY;
+
+            if (checkX >= 0 && checkX < mapPixmap.getWidth() && checkY >= 0 && checkY < mapPixmap.getHeight()) {
+                if ((mapPixmap.getPixel(checkX, checkY) & 0xffffff00) != 0) {
+                    x = nextX;
+                    y = nextY;
+                    stateTime += Gdx.graphics.getDeltaTime();
+                }
+            }
+        }
+    }
+
+    private void updateCamera() {
+        Animation<TextureRegion> currentAnim = animations.get(currentHero + "_" + dir);
+        float widthOffset = (currentAnim != null) ? currentAnim.getKeyFrame(0).getRegionWidth() / 2f : 0;
+        float heightOffset = (currentAnim != null) ? currentAnim.getKeyFrame(0).getRegionHeight() / 2f : 0;
+
+        camera.position.set(x + widthOffset, y + heightOffset, 0);
+
+        float minCamX = camera.viewportWidth / 2f;
+        float maxCamX = mapTex.getWidth() - minCamX;
+        float minCamY = camera.viewportHeight / 2f;
+        float maxCamY = mapTex.getHeight() - minCamY;
+
+        camera.position.x = Math.max(minCamX, Math.min(camera.position.x, maxCamX));
+        camera.position.y = Math.max(minCamY, Math.min(camera.position.y, maxCamY));
+        camera.update();
+    }
+
     @Override
-    public void dispose() { batch.dispose(); mapTex.dispose(); mapPixmap.dispose(); }
+    public void dispose() {
+        batch.dispose();
+        mapTex.dispose();
+        mapPixmap.dispose();
+        // Clear all cached sprite frames from your GPU memory safely
+        for (Texture tex : loadedTextures) {
+            tex.dispose();
+        }
+    }
 
     public static void main(String[] args) {
         Lwjgl3ApplicationConfiguration c = new Lwjgl3ApplicationConfiguration();
-        c.setTitle("Deltarune Sandbox"); c.setWindowedMode(800, 600); c.useVsync(true);
+        c.setTitle("Deltarune Sandbox");
+        c.setWindowedMode(800, 600);
+        c.useVsync(true);
         new Lwjgl3Application(new Main(), c);
     }
 }
